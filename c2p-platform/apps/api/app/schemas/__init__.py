@@ -29,6 +29,11 @@ from app.schemas.compliance import (
     ComplianceCheckResponse,
     ComplianceListResponse,
 )
+from app.schemas.document import (
+    ExtractionResult,
+    DocumentConfirmRequest,
+    DocumentExtractionResponse,
+)
 
 __all__ = [
     "UserBase",
@@ -54,4 +59,7 @@ __all__ = [
     "ComplianceRunRequest",
     "ComplianceCheckResponse",
     "ComplianceListResponse",
+    "ExtractionResult",
+    "DocumentConfirmRequest",
+    "DocumentExtractionResponse",
 ]

@@ -9,6 +9,7 @@ import { useToast } from "../components/Toast";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { TableSkeleton, DrawerSkeleton } from "../components/Skeletons";
 import { Drawer } from "../components/Drawer";
+import { DocumentReviewDrawer } from "../components/DocumentReviewDrawer";
 
 type SortField = "vendor_name" | "invoice_number" | "invoice_date" | "total_amount" | "status";
 type SortDir = "asc" | "desc";
@@ -46,12 +47,10 @@ export const Invoices: React.FC = () => {
   const [drawerInvoice, setDrawerInvoice] = useState<any | null>(null);
 
   // Upload Form
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [vendorName, setVendorName] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState("");
-  const [totalAmount, setTotalAmount] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [extractionResult, setExtractionResult] = useState<any | null>(null);
 
   // ── Query ──────────────────────────────────────────────────────────────────
   const { data, isLoading, isError } = useQuery({
@@ -114,21 +113,40 @@ export const Invoices: React.FC = () => {
     setUploading(true);
     try {
       const form = new FormData();
-      form.append("file", file); form.append("invoice_number", invoiceNumber);
-      form.append("vendor_name", vendorName); form.append("invoice_date", invoiceDate);
-      form.append("total_amount", totalAmount);
-      await api.post("/invoices/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
-      showToast("Invoice uploaded successfully!", "success");
-      queryClient.invalidateQueries({ queryKey: ["invoicesList"] });
-      queryClient.invalidateQueries({ queryKey: ["invoicesFull"] });
-      queryClient.invalidateQueries({ queryKey: ["invoices", 1, 1] });
-      setInvoiceNumber(""); setVendorName(""); setInvoiceDate(""); setTotalAmount(""); setFile(null);
+      form.append("file", file);
+      form.append("doc_type", "invoice");
+      const resp = await api.post("/documents/extract", form, { 
+        headers: { "Content-Type": "multipart/form-data" } 
+      });
+      setExtractionResult(resp.data);
       setUploadOpen(false);
+      setReviewOpen(true);
     } catch (err: any) {
-      showToast(err.response?.data?.detail || "Failed to upload invoice.", "error");
+      showToast(err.response?.data?.detail || "Failed to extract invoice text.", "error");
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleConfirmExtraction = async (confirmedFields: Record<string, any>) => {
+    if (!extractionResult) return;
+    await api.post("/documents/confirm", {
+      temp_file_id: extractionResult.temp_file_id,
+      doc_type: "invoice",
+      fields: confirmedFields
+    });
+    showToast("Invoice verified and created successfully!", "success");
+    queryClient.invalidateQueries({ queryKey: ["invoicesList"] });
+    queryClient.invalidateQueries({ queryKey: ["invoicesFull"] });
+    queryClient.invalidateQueries({ queryKey: ["invoices", 1, 1] });
+    setFile(null);
+    setExtractionResult(null);
+  };
+
+  const handleRetryExtraction = () => {
+    setReviewOpen(false);
+    setExtractionResult(null);
+    setUploadOpen(true);
   };
 
   const handleDownload = async (id: number) => {
@@ -338,29 +356,11 @@ export const Invoices: React.FC = () => {
         <div className="modal-overlay">
           <div className="modal-card" style={{ width: "500px" }}>
             <div className="modal-header">
-              <span className="modal-title"><Upload size={16} /> Upload Invoice</span>
+              <span className="modal-title"><Upload size={16} /> Analyze Invoice</span>
               <button className="modal-close" onClick={() => setUploadOpen(false)}><X size={15} /></button>
             </div>
             <form onSubmit={handleUploadSubmit}>
               <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Invoice Number <span style={{ color: "var(--error)" }}>*</span></label>
-                  <input type="text" required className="form-input" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="e.g. INV-2026-001" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Vendor Name <span style={{ color: "var(--error)" }}>*</span></label>
-                  <input type="text" required className="form-input" value={vendorName} onChange={e => setVendorName(e.target.value)} placeholder="e.g. Acme Corporation" />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                  <div className="form-group">
-                    <label className="form-label">Invoice Date <span style={{ color: "var(--error)" }}>*</span></label>
-                    <input type="date" required className="form-input" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Total Amount <span style={{ color: "var(--error)" }}>*</span></label>
-                    <input type="number" step="0.01" min="0" required className="form-input" value={totalAmount} onChange={e => setTotalAmount(e.target.value)} placeholder="1500.00" />
-                  </div>
-                </div>
                 <div className="form-group">
                   <label className="form-label">PDF Document <span style={{ color: "var(--error)" }}>*</span></label>
                   <div className="file-upload-area" onClick={() => document.getElementById("invoiceFile")?.click()}>
@@ -374,13 +374,23 @@ export const Invoices: React.FC = () => {
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setUploadOpen(false)} disabled={uploading}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={uploading}>
-                  {uploading ? "Uploading…" : "Upload Invoice"}
+                  {uploading ? "Analyzing…" : "Scan & Extract"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ── REVIEW DRAWER ── */}
+      <DocumentReviewDrawer
+        isOpen={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        docType="invoice"
+        extractionResult={extractionResult}
+        onConfirm={handleConfirmExtraction}
+        onRetry={handleRetryExtraction}
+      />
 
       {/* ── DELETE CONFIRM ── */}
       <ConfirmDialog

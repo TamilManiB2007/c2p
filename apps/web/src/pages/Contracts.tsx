@@ -9,6 +9,7 @@ import { useToast } from "../components/Toast";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { TableSkeleton, DrawerSkeleton } from "../components/Skeletons";
 import { Drawer } from "../components/Drawer";
+import { DocumentReviewDrawer } from "../components/DocumentReviewDrawer";
 
 type SortField = "vendor_name" | "contract_number" | "end_date" | "contract_amount" | "status";
 type SortDir = "asc" | "desc";
@@ -46,12 +47,10 @@ export const Contracts: React.FC = () => {
   const [drawerContract, setDrawerContract] = useState<any | null>(null);
 
   // Upload Form
-  const [vendorName, setVendorName] = useState("");
-  const [contractNumber, setContractNumber] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [contractAmount, setContractAmount] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [extractionResult, setExtractionResult] = useState<any | null>(null);
 
   // ── Query ──────────────────────────────────────────────────────────────────
   const { data, isLoading, isError } = useQuery({
@@ -117,22 +116,39 @@ export const Contracts: React.FC = () => {
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("vendor_name", vendorName);
-      form.append("contract_number", contractNumber);
-      if (endDate) form.append("end_date", endDate);
-      if (contractAmount) form.append("contract_amount", contractAmount);
-      await api.post("/contracts/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
-      showToast("Contract uploaded successfully!", "success");
-      queryClient.invalidateQueries({ queryKey: ["contractsList"] });
-      queryClient.invalidateQueries({ queryKey: ["contractsFull"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts", 1, 1] });
-      setVendorName(""); setContractNumber(""); setEndDate(""); setContractAmount(""); setFile(null);
+      form.append("doc_type", "contract");
+      const resp = await api.post("/documents/extract", form, { 
+        headers: { "Content-Type": "multipart/form-data" } 
+      });
+      setExtractionResult(resp.data);
       setUploadOpen(false);
+      setReviewOpen(true);
     } catch (err: any) {
-      showToast(err.response?.data?.detail || "Failed to upload contract.", "error");
+      showToast(err.response?.data?.detail || "Failed to extract contract text.", "error");
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleConfirmExtraction = async (confirmedFields: Record<string, any>) => {
+    if (!extractionResult) return;
+    await api.post("/documents/confirm", {
+      temp_file_id: extractionResult.temp_file_id,
+      doc_type: "contract",
+      fields: confirmedFields
+    });
+    showToast("Contract verified and created successfully!", "success");
+    queryClient.invalidateQueries({ queryKey: ["contractsList"] });
+    queryClient.invalidateQueries({ queryKey: ["contractsFull"] });
+    queryClient.invalidateQueries({ queryKey: ["contracts", 1, 1] });
+    setFile(null);
+    setExtractionResult(null);
+  };
+
+  const handleRetryExtraction = () => {
+    setReviewOpen(false);
+    setExtractionResult(null);
+    setUploadOpen(true);
   };
 
   const handleDownload = async (id: number) => {
@@ -352,29 +368,11 @@ export const Contracts: React.FC = () => {
         <div className="modal-overlay">
           <div className="modal-card" style={{ width: "500px" }}>
             <div className="modal-header">
-              <span className="modal-title"><Upload size={16} /> Upload Contract</span>
+              <span className="modal-title"><Upload size={16} /> Analyze Contract</span>
               <button className="modal-close" onClick={() => setUploadOpen(false)}><X size={15} /></button>
             </div>
             <form onSubmit={handleUploadSubmit}>
               <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Vendor Name <span style={{ color: "var(--error)" }}>*</span></label>
-                  <input type="text" required className="form-input" value={vendorName} onChange={e => setVendorName(e.target.value)} placeholder="e.g. Acme Corporation" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Contract Number <span style={{ color: "var(--error)" }}>*</span></label>
-                  <input type="text" required className="form-input" value={contractNumber} onChange={e => setContractNumber(e.target.value)} placeholder="e.g. CTR-2026-001" />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                  <div className="form-group">
-                    <label className="form-label">End Date <span className="form-label-optional">(optional)</span></label>
-                    <input type="date" className="form-input" value={endDate} onChange={e => setEndDate(e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Contract Amount <span className="form-label-optional">(optional)</span></label>
-                    <input type="number" step="0.01" min="0" className="form-input" value={contractAmount} onChange={e => setContractAmount(e.target.value)} placeholder="50000.00" />
-                  </div>
-                </div>
                 <div className="form-group">
                   <label className="form-label">PDF Document <span style={{ color: "var(--error)" }}>*</span></label>
                   <div className="file-upload-area" onClick={() => document.getElementById("contractFile")?.click()}>
@@ -388,13 +386,23 @@ export const Contracts: React.FC = () => {
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setUploadOpen(false)} disabled={uploading}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={uploading}>
-                  {uploading ? "Uploading…" : "Upload Contract"}
+                  {uploading ? "Analyzing…" : "Scan & Extract"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ── REVIEW DRAWER ── */}
+      <DocumentReviewDrawer
+        isOpen={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        docType="contract"
+        extractionResult={extractionResult}
+        onConfirm={handleConfirmExtraction}
+        onRetry={handleRetryExtraction}
+      />
 
       {/* ── DELETE CONFIRM ── */}
       <ConfirmDialog
