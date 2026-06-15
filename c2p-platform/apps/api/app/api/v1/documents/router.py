@@ -32,6 +32,13 @@ from app.schemas.document import (
     DocumentExtractionResponse,
 )
 from app.services.document_parser import DocumentParser
+from app.core.logging import (
+    log_upload_start,
+    log_extract_start,
+    log_extract_complete,
+    log_confirm_start,
+    log_confirm_complete,
+)
 
 router = APIRouter(prefix="/documents", tags=["Document Intelligence"])
 
@@ -60,6 +67,8 @@ async def extract_document(
             detail="doc_type must be either 'contract' or 'invoice'",
         )
 
+    log_upload_start(file.filename, doc_type, current_user.id)
+
     # Validate file type
     if file.content_type != "application/pdf" and not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
@@ -84,11 +93,13 @@ async def extract_document(
 
     # Extract text & parse
     try:
+        log_extract_start(temp_file_id, doc_type)
         raw_text = DocumentParser.extract_text(str(temp_file_path))
         if doc_type == "contract":
             fields, confidence, warnings = DocumentParser.parse_contract(raw_text)
         else:
             fields, confidence, warnings = DocumentParser.parse_invoice(raw_text)
+        log_extract_complete(temp_file_id, doc_type, len(fields), warnings)
     except Exception as e:
         # Clean up temp file in case of failure
         if temp_file_path.exists():
@@ -162,6 +173,7 @@ async def confirm_document(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session),
 ):
+    log_confirm_start(request.temp_file_id, request.doc_type, current_user.id)
     # Fetch extraction run
     q = select(DocumentExtraction).where(
         DocumentExtraction.temp_file_name == request.temp_file_id,
@@ -272,6 +284,14 @@ async def confirm_document(
         extraction_run.status = "confirmed"
         extraction_run.extracted_data = request.fields
         await db.commit()
+
+        record_id = None
+        if request.doc_type == "contract" and 'contract' in locals():
+            record_id = contract.id
+        elif request.doc_type == "invoice" and 'invoice' in locals():
+            record_id = invoice.id
+
+        log_confirm_complete(request.doc_type, record_id)
 
         return {"message": f"{request.doc_type.capitalize()} confirmed and created successfully"}
     except Exception as e:

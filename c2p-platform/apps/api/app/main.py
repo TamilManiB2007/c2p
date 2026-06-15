@@ -1,18 +1,27 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import get_settings
 from app.core.database import init_db, close_db
+from app.core.logging import configure_logger, request_logging_middleware
 from app.api import api_router
+
+# ── 1. Initialise logger immediately — before anything else ─────────────────
+configure_logger(console_level="INFO")
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from loguru import logger
+    logger.info("C2P Platform starting up | version={}", settings.APP_VERSION)
     await init_db()
+    logger.info("Database connection pool ready")
     yield
+    logger.info("C2P Platform shutting down")
     await close_db()
 
 
@@ -24,6 +33,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# ── 2. Request logging middleware ────────────────────────────────────────────
+app.add_middleware(BaseHTTPMiddleware, dispatch=request_logging_middleware)
 
 app.add_middleware(
     CORSMiddleware,

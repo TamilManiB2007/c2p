@@ -359,11 +359,35 @@ c1456e6 Initial commit
 - [x] Phase 6 Document Intelligence routes registered
 - [x] Phase 6 migration applied in clean boot
 - [x] Phase 6 parser tests all pass
+- [x] Phase 7.1: `loguru` dependency added to `pyproject.toml`
+- [x] Phase 7.1: `app/core/logging.py` implemented with intercept handler
+- [x] Phase 7.1: Startup configuration and request logging middleware integrated in `main.py`
+- [x] Phase 7.1: Document pipeline events wired into API router
+- [x] Phase 7.1: Tested end-to-end extraction/confirmation flow and confirmed structured logs captured successfully
 - [x] Git working tree clean
 - [x] Code pushed to GitHub
 
 ---
 
+## 13. Phase 7.1: Structured Observability Integration
+
+### 13.1 Components Integrated
+- **`app/core/logging.py`**: Created loguru-based structured logger with interception of standard library loggers (uvicorn, sqlalchemy, alembic, etc.) and helper functions for pipeline and compliance logging events.
+- **`app/main.py`**: Wired logger initialization `configure_logger()` before app creation and structured HTTP request middleware to log method, path, status_code, and duration_ms.
+- **`app/api/v1/documents/router.py`**: Integrated document pipeline event logging (`upload_start`, `extract_start`, `extract_complete`, `confirm_start`, `confirm_complete`).
+- **`pyproject.toml`**: Added `loguru==0.7.2` dependency.
+
+### 13.2 Observability Verifications
+Ran `verify_logging.py` to upload, extract, and confirm a real contract document. Verified console logs:
+- Standard logs (uvicorn/databases) intercepted cleanly.
+- Request middleware logs start/end of every request.
+- Document pipeline logs successfully trace exact states and warnings.
+- SQLite `demo_c2p.db` remains intact and updated.
+
+**All checks passed successfully.**
+
+---
+
 **VERIFICATION COMPLETE: RELEASE CANDIDATE — PASS ✅**
 
-*Generated: 2026-06-15 | C2P Platform v0.6 | Phase 6.1 Reality Audit*
+*Generated: 2026-06-15 | C2P Platform v0.6 | Phase 6.1 & 7.1 Reality Audit*
